@@ -4,6 +4,15 @@
 
 Бот: [@TelegaFireBot](https://t.me/TelegaFireBot)
 
+## GitHub: Grok ревьюит PR
+
+На каждый pull request GitHub Action ставит Grok CLI и просит его найти баги.
+
+Нужен секрет репозитория **`XAI_API_KEY`**:
+Settings → Secrets and variables → Actions → New repository secret.
+
+Workflow: `.github/workflows/grok-review.yml`
+
 ## Что умеет
 
 - 🧠 ChatGPT — спокойные чёткие ответы
