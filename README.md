@@ -1,20 +1,20 @@
-# Огонёк — Telegram-бот
+# Dual brain — Telegram AI
 
-Бот вроде огонька в ТикТоке: двое пишут друг другу каждый день, и стрик растёт. Пропустили день — огонёк гаснет.
+Помощник в Telegram на **ChatGPT** и **Grok**. Можно болтать с одной моделью или спросить обеих сразу.
 
-Рабочий бот: [@TelegaFireBot](https://t.me/TelegaFireBot)
+Бот: [@TelegaFireBot](https://t.me/TelegaFireBot)
 
-## Как это работает
+## Что умеет
 
-1. Друг заходит в бота по твоей ссылке (или ты добавляешь его по `@username`).
-2. Открываете чат в боте и переписываетесь: текст, фото, голосовые, стикеры.
-3. Если **оба** написали хотя бы раз за день (по Москве) — огонёк `+1`.
-4. Если кто-то пропустил день — счётчик сбрасывается в 0.
-5. Вечером бот напомнит, если огонёк ещё не зажжён.
+- 🧠 ChatGPT — спокойные чёткие ответы
+- ⚡ Grok — прямее, с характером
+- 🔥 Оба сразу — два ответа на один вопрос
+- память диалога, голосовые (Whisper) и фото
+- кнопка «Новый чат» сбрасывает историю
 
 ## Запуск
 
-Нужен Python 3.10+.
+Python 3.10+.
 
 ```bash
 python3 -m venv .venv
@@ -23,32 +23,35 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-В `.env` вставь токен от [@BotFather](https://t.me/BotFather):
+В `.env`:
 
 ```
-BOT_TOKEN=123456:ABC...
-TIMEZONE=Europe/Moscow
-REMIND_HOUR=20
+BOT_TOKEN=токен_от_BotFather
+OPENAI_API_KEY=ключ_openai
+XAI_API_KEY=ключ_xai
+OPENAI_MODEL=gpt-4o-mini
+XAI_MODEL=grok-4.6
 ```
 
-Запуск:
+Ключи:
+
+- OpenAI — https://platform.openai.com/api-keys
+- xAI (Grok) — https://console.x.ai/
 
 ```bash
 python -m bot
 ```
 
-После `/start` бот сам выдаст ссылку вида `https://t.me/TelegaFireBot?start=u<id>`.
-
 ## Команды
 
 | Команда | Что делает |
 | --- | --- |
-| `/start` | Регистрация и ссылка-приглашение |
-| `/friends` | Список друзей и огоньков |
-| `/add` | Добавить друга по `@username` |
-| `/top` | Топ самых длинных огоньков |
-| `/help` | Правила |
-| `/cancel` | Отмена текущего действия |
+| `/start` | Старт |
+| `/gpt` | Режим ChatGPT |
+| `/grok` | Режим Grok |
+| `/both` | Спросить обоих |
+| `/reset` | Новый чат |
+| `/help` | Помощь |
 
 ## Тесты
 

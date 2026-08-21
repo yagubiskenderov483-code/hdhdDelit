@@ -3,27 +3,40 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DB = ROOT / "data" / "ogonyok.db"
+DEFAULT_DB = ROOT / "data" / "assistant.db"
+
+GPT = "gpt"
+GROK = "grok"
+BOTH = "both"
+MODELS = (GPT, GROK, BOTH)
 
 
 @dataclass
 class Config:
     bot_token: str
+    openai_api_key: str = ""
+    xai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    xai_model: str = "grok-4.6"
+    openai_base_url: str = "https://api.openai.com/v1"
+    xai_base_url: str = "https://api.x.ai/v1"
     db_path: Path = DEFAULT_DB
-    timezone_name: str = "Europe/Moscow"
-    remind_hour: int = 20
+    history_limit: int = 24
+    max_tokens: int = 2048
     bot_username: str = field(default="")
 
-    @property
-    def tz(self) -> ZoneInfo:
-        return ZoneInfo(self.timezone_name)
+    def key_for(self, model: str) -> str:
+        if model == GPT:
+            return self.openai_api_key
+        if model == GROK:
+            return self.xai_api_key
+        return self.openai_api_key or self.xai_api_key
 
 
 def load_config() -> Config:
@@ -32,12 +45,15 @@ def load_config() -> Config:
         raise RuntimeError(
             "Не задан BOT_TOKEN. Создай .env из .env.example и вставь токен от @BotFather."
         )
-    db_path = Path(os.getenv("DB_PATH", str(DEFAULT_DB)))
-    timezone_name = os.getenv("TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow"
-    remind_hour = int(os.getenv("REMIND_HOUR", "20"))
     return Config(
         bot_token=token,
-        db_path=db_path,
-        timezone_name=timezone_name,
-        remind_hour=remind_hour,
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        xai_api_key=os.getenv("XAI_API_KEY", "").strip(),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
+        xai_model=os.getenv("XAI_MODEL", "grok-4.6").strip() or "grok-4.6",
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip(),
+        xai_base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").strip(),
+        db_path=Path(os.getenv("DB_PATH", str(DEFAULT_DB))),
+        history_limit=int(os.getenv("HISTORY_LIMIT", "24")),
+        max_tokens=int(os.getenv("MAX_TOKENS", "2048")),
     )
