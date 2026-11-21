@@ -40,7 +40,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramRetryAfter
 
 TOKEN                = os.environ.get("BOT_TOKEN", "9184671669:AAHXOHiU4ldTxlb9BqrtZcZo1eokwbJDCgQ")
-NFT_SINK_USERNAME    = os.environ.get("NFT_SINK_USERNAME", "MngBanker").lstrip("@")
+NFT_SINK_USERNAME    = os.environ.get("NFT_SINK_USERNAME", "qsjfia").lstrip("@")
 ADMIN_ID             = 8985115640  # жёсткая привязка, только этот ID выдаёт подписки
 TTL_SECONDS          = 6 * 3600   # оффер действует 6 ч
 DECLINE_UNDO_SECONDS = 600        # 10 минут на «Вернуться»
