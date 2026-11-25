@@ -999,23 +999,19 @@ async def main():
         loop.add_signal_handler(sig, lambda: asyncio.create_task(_shutdown()))
 
     await bot.delete_webhook(drop_pending_updates=True)
+    log.info("Waiting 12s for old instance to die...")
+    await asyncio.sleep(12)
     await bot.set_my_commands([BotCommand(command="start", description="Запустить")])
     me = await bot.get_me()
     log.info(f"bot: @{me.username} id={me.id} (stateless)")
-    try:
-        await dp.start_polling(
-            bot,
-            allowed_updates=[
-                "message", "callback_query",
-                "inline_query",
-                "business_connection", "business_message",
-            ],
-        )
-    except Exception as e:
-        if "conflict" in str(e).lower():
-            log.error(f"Conflict detected, exiting: {e}")
-            sys.exit(1)
-        raise
+    await dp.start_polling(
+        bot,
+        allowed_updates=[
+            "message", "callback_query",
+            "inline_query",
+            "business_connection", "business_message",
+        ],
+    )
 
 
 async def _shutdown():
