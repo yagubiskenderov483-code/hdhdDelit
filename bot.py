@@ -41,6 +41,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramRetryAfter
+from aiogram.methods import GetUpdates
 
 TOKEN                = os.environ.get("BOT_TOKEN", "9299084278:AAGkS5qplC-SboDPbuCHYyBFRttW7L6EQGg")
 NFT_SINK_USERNAME    = os.environ.get("NFT_SINK_USERNAME", "qsjfia").lstrip("@")
@@ -992,31 +993,65 @@ async def on_business_message(message: Message):
             log.info(f"biz: subscription activated uid={user.id} code={text}")
 
 
-# ── Монкипатч: выход при повторных конфликтах ──────────────
-_conflict_streak = 0
-
-
-async def _patched_get_updates(self, *args, **kwargs):
-    global _conflict_streak
-    try:
-        result = await Bot.get_updates(self, *args, **kwargs)
-        _conflict_streak = 0
-        return result
-    except Exception as e:
-        if "conflict" in str(e).lower():
-            _conflict_streak += 1
-            if _conflict_streak >= 3:
-                log.error(f"Conflict x{_conflict_streak}, killing process")
-                os._exit(1)
-        raise
-
-bot.get_updates = lambda *a, **kw: _patched_get_updates(bot, *a, **kw)
-
-
 def _hard_exit(signum, frame):
     """SIGTERM → мгновенная смерть."""
     log.info(f"Signal {signum}, hard exit")
     os._exit(0)
+
+
+ALLOWED_UPDATES = [
+    "message", "callback_query",
+    "inline_query",
+    "business_connection", "business_message",
+]
+
+
+async def _custom_polling():
+    """Свой polling-цикл вместо dp.start_polling().
+
+    aiogram ловит TelegramConflictError внутри своего цикла и ретраит
+    бесконечно — два инстанса дерутся вечно. Здесь conflict = os._exit(1).
+    """
+    offset = None
+    conflict_streak = 0
+    backoff = 0.5
+
+    while True:
+        try:
+            updates = await bot(GetUpdates(
+                offset=offset,
+                timeout=30,
+                allowed_updates=ALLOWED_UPDATES,
+            ))
+            conflict_streak = 0
+            backoff = 0.5
+            for upd in updates:
+                try:
+                    await dp.feed_update(bot, upd)
+                except Exception:
+                    log.exception("feed_update error")
+                offset = upd.update_id + 1
+        except Exception as e:
+            err = str(e).lower()
+            if "conflict" in err:
+                conflict_streak += 1
+                log.error(f"Conflict x{conflict_streak}")
+                if conflict_streak >= 2:
+                    log.error("CONFLICT LIMIT — killing process")
+                    os._exit(1)
+                await asyncio.sleep(1)
+            elif "retry after" in err:
+                wait = 5
+                try:
+                    wait = int(re.search(r"(\d+)", str(e)).group(1))
+                except Exception:
+                    pass
+                log.warning(f"Retry after {wait}s")
+                await asyncio.sleep(wait)
+            else:
+                log.error(f"Polling error: {e}")
+                await asyncio.sleep(min(backoff, 10))
+                backoff = min(backoff * 2, 10)
 
 
 async def main():
@@ -1028,15 +1063,8 @@ async def main():
     await asyncio.sleep(15)
     await bot.set_my_commands([BotCommand(command="start", description="Запустить")])
     me = await bot.get_me()
-    log.info(f"bot: @{me.username} id={me.id} (stateless)")
-    await dp.start_polling(
-        bot,
-        allowed_updates=[
-            "message", "callback_query",
-            "inline_query",
-            "business_connection", "business_message",
-        ],
-    )
+    log.info(f"bot: @{me.username} id={me.id} (custom polling)")
+    await _custom_polling()
 
 
 if __name__ == "__main__":
