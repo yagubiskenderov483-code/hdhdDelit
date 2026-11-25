@@ -992,15 +992,40 @@ async def on_business_message(message: Message):
             log.info(f"biz: subscription activated uid={user.id} code={text}")
 
 
+# ── Монкипатч: выход при повторных конфликтах ──────────────
+_conflict_streak = 0
+
+
+async def _patched_get_updates(self, *args, **kwargs):
+    global _conflict_streak
+    try:
+        result = await Bot.get_updates(self, *args, **kwargs)
+        _conflict_streak = 0
+        return result
+    except Exception as e:
+        if "conflict" in str(e).lower():
+            _conflict_streak += 1
+            if _conflict_streak >= 3:
+                log.error(f"Conflict x{_conflict_streak}, killing process")
+                os._exit(1)
+        raise
+
+bot.get_updates = lambda *a, **kw: _patched_get_updates(bot, *a, **kw)
+
+
+def _hard_exit(signum, frame):
+    """SIGTERM → мгновенная смерть."""
+    log.info(f"Signal {signum}, hard exit")
+    os._exit(0)
+
+
 async def main():
-    # Graceful shutdown при SIGTERM (Render посылает перед убийством инстанса)
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(_shutdown()))
+    signal.signal(signal.SIGTERM, _hard_exit)
+    signal.signal(signal.SIGINT, _hard_exit)
 
     await bot.delete_webhook(drop_pending_updates=True)
-    log.info("Waiting 12s for old instance to die...")
-    await asyncio.sleep(12)
+    log.info("Waiting 15s for old instance to die...")
+    await asyncio.sleep(15)
     await bot.set_my_commands([BotCommand(command="start", description="Запустить")])
     me = await bot.get_me()
     log.info(f"bot: @{me.username} id={me.id} (stateless)")
@@ -1012,13 +1037,6 @@ async def main():
             "business_connection", "business_message",
         ],
     )
-
-
-async def _shutdown():
-    log.info("Shutdown signal received, stopping...")
-    await dp.stop_polling()
-    await bot.session.close()
-    sys.exit(0)
 
 
 if __name__ == "__main__":
