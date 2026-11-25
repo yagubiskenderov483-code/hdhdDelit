@@ -1009,11 +1009,13 @@ ALLOWED_UPDATES = [
 async def _custom_polling():
     """Свой polling-цикл вместо dp.start_polling().
 
-    aiogram ловит TelegramConflictError внутри своего цикла и ретраит
-    бесконечно — два инстанса дерутся вечно. Здесь conflict = os._exit(1).
+    Стратегия: НЕ умирать при конфликте. Старый инстанс получит SIGTERM
+    от Render и умрёт (os._exit в хендлере). Новый инстанс терпеливо
+    ждёт и забирает polling когда старый сдохнет.
+    Если конфликт длится > 120 сек — что-то совсем не так, тогда exit.
     """
     offset = None
-    conflict_streak = 0
+    conflict_start = None
     backoff = 0.5
 
     while True:
@@ -1023,7 +1025,10 @@ async def _custom_polling():
                 timeout=30,
                 allowed_updates=ALLOWED_UPDATES,
             ))
-            conflict_streak = 0
+            if conflict_start is not None:
+                elapsed = time.time() - conflict_start
+                log.info(f"Polling recovered after {elapsed:.0f}s of conflicts")
+                conflict_start = None
             backoff = 0.5
             for upd in updates:
                 try:
@@ -1034,12 +1039,15 @@ async def _custom_polling():
         except Exception as e:
             err = str(e).lower()
             if "conflict" in err:
-                conflict_streak += 1
-                log.error(f"Conflict x{conflict_streak}")
-                if conflict_streak >= 2:
-                    log.error("CONFLICT LIMIT — killing process")
+                now = time.time()
+                if conflict_start is None:
+                    conflict_start = now
+                    log.warning("Conflict detected, waiting for old instance to die...")
+                elapsed = now - conflict_start
+                if elapsed > 120:
+                    log.error(f"Conflict persists {elapsed:.0f}s, giving up")
                     os._exit(1)
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
             elif "retry after" in err:
                 wait = 5
                 try:
@@ -1059,8 +1067,8 @@ async def main():
     signal.signal(signal.SIGINT, _hard_exit)
 
     await bot.delete_webhook(drop_pending_updates=True)
-    log.info("Waiting 15s for old instance to die...")
-    await asyncio.sleep(15)
+    log.info("Starting in 5s...")
+    await asyncio.sleep(5)
     await bot.set_my_commands([BotCommand(command="start", description="Запустить")])
     me = await bot.get_me()
     log.info(f"bot: @{me.username} id={me.id} (custom polling)")
