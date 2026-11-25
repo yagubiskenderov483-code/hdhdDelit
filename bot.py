@@ -960,27 +960,19 @@ async def on_business_message(message: Message):
     o = parse_cmd(message.text, user.id if user else 0)
     if o:
         ts = int(time.time())
+        # В бизнес-чатах WebApp кнопки не поддерживаются — сразу callback.
+        # reply_to_message_id чтобы не триггерить PEER_FLOOD.
         try:
             await bot.send_message(
                 chat_id=message.chat.id,
                 text=offer_text(o, ts),
-                reply_markup=offer_kb(o, ts),
+                reply_markup=offer_kb_fallback(o, ts),
                 link_preview_options=lp(o["nft_url"]),
                 business_connection_id=biz_id,
+                reply_to_message_id=message.message_id,
             )
         except Exception as e:
             log.warning(f"biz offer send fail: {e}")
-            # фолбэк без WebApp
-            try:
-                await bot.send_message(
-                    chat_id=message.chat.id,
-                    text=offer_text(o, ts),
-                    reply_markup=offer_kb_fallback(o, ts),
-                    link_preview_options=lp(o["nft_url"]),
-                    business_connection_id=biz_id,
-                )
-            except Exception as e2:
-                log.warning(f"biz offer fallback fail: {e2}")
         return
     # Активация кода в бизнес-чате
     text = (message.text or "").strip()
