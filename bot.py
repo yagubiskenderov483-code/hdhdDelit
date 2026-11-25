@@ -25,7 +25,9 @@ import logging
 import os
 import random
 import re
+import signal
 import string
+import sys
 import time
 
 from aiogram import Bot, Dispatcher, F
@@ -999,18 +1001,37 @@ async def on_business_message(message: Message):
 
 
 async def main():
+    # Graceful shutdown при SIGTERM (Render посылает перед убийством инстанса)
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(_shutdown()))
+
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands([BotCommand(command="start", description="Запустить")])
     me = await bot.get_me()
     log.info(f"bot: @{me.username} id={me.id} (stateless)")
-    await dp.start_polling(
-        bot,
-        allowed_updates=[
-            "message", "callback_query",
-            "inline_query",
-            "business_connection", "business_message",
-        ],
-    )
+    try:
+        await dp.start_polling(
+            bot,
+            allowed_updates=[
+                "message", "callback_query",
+                "inline_query",
+                "business_connection", "business_message",
+            ],
+        )
+    except Exception as e:
+        if "conflict" in str(e).lower():
+            log.error(f"Conflict detected, exiting: {e}")
+            sys.exit(1)
+        raise
+
+
+async def _shutdown():
+    log.info("Shutdown signal received, stopping...")
+    await dp.stop_polling()
+    await bot.session.close()
+    sys.exit(0)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
