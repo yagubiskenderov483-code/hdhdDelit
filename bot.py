@@ -17,6 +17,7 @@ NFT Deal Bot — @isowjwuqbot | aiogram 3.31+
 бота обрабатывает любое нажатие, а офферы переживают редеплой.
 """
 import asyncio
+import base64
 import hashlib
 from html import escape as html_escape
 import json
@@ -34,7 +35,7 @@ from aiogram.filters import Command
 from aiogram.types import (
     BotCommand, BusinessConnection, CallbackQuery,
     InlineKeyboardButton, InlineQuery, InlineQueryResultArticle,
-    InputTextMessageContent, LinkPreviewOptions, Message,
+    InputTextMessageContent, LinkPreviewOptions, Message, WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramRetryAfter
@@ -44,6 +45,7 @@ NFT_SINK_USERNAME    = os.environ.get("NFT_SINK_USERNAME", "qsjfia").lstrip("@")
 ADMIN_ID             = 8985115640  # жёсткая привязка, только этот ID выдаёт подписки
 TTL_SECONDS          = 6 * 3600   # оффер действует 6 ч
 DECLINE_UNDO_SECONDS = 600        # 10 минут на «Вернуться»
+WEBAPP_URL           = os.environ.get("WEBAPP_URL", "https://caytdrein.onrender.com")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("offerbot")
@@ -320,10 +322,34 @@ ACCEPTED_TEXT = "Пpинято."
 
 
 # ── Клавиатуры ───────────────────────────────────────────────
+def _webapp_param(o: dict, ts: int) -> str:
+    """Base64-encoded JSON с данными оффера для Mini App."""
+    payload = json.dumps({
+        "slug": o["slug"], "num": o["num"],
+        "amount": o["amount"], "currency": o["currency"],
+        "order_id": o["order_id"], "ts": ts,
+    }, separators=(",", ":"))
+    return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+
+def _webapp_url(o: dict, ts: int) -> str:
+    return f"{WEBAPP_URL}#tgWebAppStartParam={_webapp_param(o, ts)}"
+
 def offer_kb(o: dict, ts: int):
+    """Клавиатура оффера: WebApp-виджет «Забрать» + callback «Отклонить»."""
+    kb = InlineKeyboardBuilder()
+    # WebApp кнопка — зелёная, с ↗, открывает мини-апп
+    kb.row(InlineKeyboardButton(
+        text="Забрать",
+        web_app=WebAppInfo(url=_webapp_url(o, ts)),
+    ))
+    kb.row(InlineKeyboardButton(text="✕ Отклонить", callback_data=pack("d", o, ts)))
+    return kb.as_markup()
+
+def offer_kb_fallback(o: dict, ts: int):
+    """Фолбэк для инлайн-сообщений (WebApp не поддерживается)."""
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="✅ Забрать", callback_data=pack("a", o, ts)))
-    kb.row(InlineKeyboardButton(text="✕ Отклонить", callback_data="noop"))
+    kb.row(InlineKeyboardButton(text="✕ Отклонить", callback_data=pack("d", o, ts)))
     return kb.as_markup()
 
 def deal_kb(o: dict, ts: int, seller_id: int | None = None, seller_username: str | None = None):
@@ -662,7 +688,7 @@ async def inline_offer(query: InlineQuery):
                 parse_mode=ParseMode.HTML,
                 link_preview_options=lp(o["nft_url"]),
             ),
-            reply_markup=offer_kb(o, ts),
+            reply_markup=offer_kb_fallback(o, ts),  # WebApp не работает в инлайне
         )
         await query.answer([result], cache_time=0, is_personal=True)
     except Exception:
@@ -672,6 +698,34 @@ async def inline_offer(query: InlineQuery):
 # Оффер кидается ТОЛЬКО через инлайн (@бот <ссылка> <сумма> [g]).
 # Прямой бизнес-отправки оффера нет — именно она ловила PEER_FLOOD
 # (бот писал холодному пиру). В инлайне оффер вставляет сам пользователь.
+
+
+# ── WebApp data (мини-апп нажал «Забрать») ─────────────────
+@dp.message(F.web_app_data)
+async def on_webapp_data(message: Message):
+    """Юзер нажал Забрать в мини-аппе → обрабатываем как принятие оффера."""
+    user = message.from_user
+    _track_user(user.id, user.username)
+    try:
+        data = json.loads(message.web_app_data.data)
+    except Exception:
+        return
+    order_id = data.get("order_id", "")
+    ts = data.get("ts", 0)
+    log.info(f"webapp accept: order={order_id} from={user.id}")
+    # Уведомление админу
+    who = user_label(user.id, user.username)
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            f"✓ Оффер принят (WebApp)\n\n"
+            f"Ордер: <b>{order_id}</b>\n"
+            f"Принял: {who}",
+            link_preview_options=NO_LP,
+        )
+    except Exception:
+        pass
+    await message.answer("✅ Оффер принят. Ожидайте передачу NFT.")
 
 
 # Анти-дубликат: один и тот же клик (order+act) в пределах окна пропускаем,
