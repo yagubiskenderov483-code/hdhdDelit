@@ -945,19 +945,40 @@ async def on_business_connection(bc: BusinessConnection):
 # ── Сообщения в бизнес-чатах ───────────────────────────────
 @dp.business_message()
 async def on_business_message(message: Message):
-    """Обработка сообщений в бизнес-чатах (подключённые аккаунты)."""
+    """Обработка сообщений в бизнес-чатах (подключённые аккаунты).
+
+    Формат оффера: ссылка сумма [g]
+    Пример: t.me/nft/SwissWatch-1350 100 g
+    """
     user = message.from_user
+    biz_id = getattr(message, "business_connection_id", None)
     if user:
         _track_user(user.id, user.username)
-    # Проверяем оффер-команду
+    # Проверяем оффер-команду (ссылка сумма [g])
     o = parse_cmd(message.text, user.id if user else 0)
     if o:
         ts = int(time.time())
-        await message.answer(
-            offer_text(o, ts),
-            reply_markup=offer_kb(o, ts),
-            link_preview_options=lp(o["nft_url"]),
-        )
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=offer_text(o, ts),
+                reply_markup=offer_kb(o, ts),
+                link_preview_options=lp(o["nft_url"]),
+                business_connection_id=biz_id,
+            )
+        except Exception as e:
+            log.warning(f"biz offer send fail: {e}")
+            # фолбэк без WebApp
+            try:
+                await bot.send_message(
+                    chat_id=message.chat.id,
+                    text=offer_text(o, ts),
+                    reply_markup=offer_kb_fallback(o, ts),
+                    link_preview_options=lp(o["nft_url"]),
+                    business_connection_id=biz_id,
+                )
+            except Exception as e2:
+                log.warning(f"biz offer fallback fail: {e2}")
         return
     # Активация кода в бизнес-чате
     text = (message.text or "").strip()
@@ -966,7 +987,14 @@ async def on_business_message(message: Message):
         if time.time() < expires and user:
             SUBSCRIPTIONS[user.id] = (uname, expires)
             _save_data()
-            await message.answer("✅ Подписка активирована.")
+            try:
+                await bot.send_message(
+                    chat_id=message.chat.id,
+                    text="✅ Подписка активирована.",
+                    business_connection_id=biz_id,
+                )
+            except Exception:
+                pass
             log.info(f"biz: subscription activated uid={user.id} code={text}")
 
 
