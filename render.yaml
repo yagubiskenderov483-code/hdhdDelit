@@ -1,0 +1,22 @@
+# Фабрика аккаунтов — отдельный фоновый сервис на Render.
+# Секреты НЕ в репозитории (он публичный): задаются в дашборде Render.
+services:
+  - type: worker
+    name: account-factory
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN           # токен бота @heisoqqkqbot
+        sync: false
+      - key: API_ID              # тот же, что у трекера (36101343)
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: SESSION_BACKUP_KEY  # ТОТ ЖЕ, что у трекера — иначе .backup не импортируется
+        sync: false
+      - key: ADMIN_IDS           # твой Telegram ID (через запятую, если несколько)
+        sync: false
+      - key: START_INDEX
+        value: "207"
