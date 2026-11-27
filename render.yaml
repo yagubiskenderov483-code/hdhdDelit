@@ -5,6 +5,7 @@ services:
     name: account-factory
     runtime: docker
     plan: starter
+    region: frankfurt
     dockerfilePath: ./Dockerfile
     autoDeploy: true
     envVars:
