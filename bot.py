@@ -24,6 +24,7 @@ import io
 import json
 import logging
 import os
+import random
 import re
 import zlib
 from pathlib import Path
@@ -163,6 +164,18 @@ class Store:
 store = Store()
 
 # ------------------------------------------------------------------- FSM / бот
+# Реалистичные профили Telegram Desktop (device_model, system_version, app_version).
+# Логин с таким профилем выглядит как настоящий клиент, а не бот — меньше шанс, что Telegram
+# сразу отзовёт сессию свежего аккаунта. Случайный выбор на аккаунт, чтобы не были одинаковы.
+_DEVICE_PROFILES = [
+    ("Desktop", "Windows 10", "5.7.3 x64"),
+    ("Desktop", "Windows 11", "5.8.3 x64"),
+    ("PC 64bit", "Windows 10", "5.6.3 x64"),
+    ("MacBookPro18,1", "macOS 14.5", "11.6.2"),
+    ("MacBookAir10,1", "macOS 13.6", "11.5.1"),
+    ("Desktop", "Ubuntu 22.04", "5.7.3"),
+]
+
 router = Router()
 pending: dict[int, dict] = {}        # uid -> {client, phone, hash}
 
@@ -287,9 +300,13 @@ async def add_phone(m: Message, state: FSMContext) -> None:
         return
     await _cleanup(m.from_user.id)
     await m.answer("⏳ Подключаюсь к Telegram и запрашиваю код…")
+    # Реалистичный профиль устройства (Telegram Desktop), случайный на аккаунт. "Factory"/"1.0"
+    # выглядели как бот — Telegram такие логины флагает и отзывает. Мимикрируем под настоящий клиент.
+    dev = random.choice(_DEVICE_PROFILES)
     client = TelegramClient(StringSession(), API_ID, API_HASH,
                             connection_retries=1, timeout=15,
-                            device_model="Factory", system_version="1.0", app_version="1.0")
+                            device_model=dev[0], system_version=dev[1], app_version=dev[2],
+                            lang_code="en", system_lang_code="en")
     try:
         await asyncio.wait_for(client.connect(), 15)
         log.info("ADD [phone] %s api_id=%s — send_code", ph, API_ID)
